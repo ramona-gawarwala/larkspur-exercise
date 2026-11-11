@@ -13,12 +13,104 @@ from typing import Any, Dict, List
 from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
                      new_session, next_available_day, record_tool_result,
                      runtime_preamble)
+from support import mock_backend
+from support.tools import check_policy as _check_policy
 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
-EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
-LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
+EXTRA_TOOLS: List[Dict[str, Any]] = [    # ✏️ Build 2, step 2.1: schemas for the tools you add
+    {
+        "name": "next_available_day",
+        "description": (
+            "Find the earliest date with an open seat on the same route and cabin as the "
+            "customer's disrupted segment. Use it when the customer asks when they can "
+            "next fly, or says they want the next day rather than today. Take origin, "
+            "dest, date and cabin from the segment in the lookup_booking result; do not "
+            "ask the customer for them. Returns one date, not a list of flights, and it "
+            "cannot skip a day: for 'I want tomorrow', also call search_alternatives and "
+            "check the dates in its options. If no date comes back, say nothing is "
+            "available, do not invent a flight, and hand off with escalate_to_human. Not "
+            "for a customer who only wants to cancel: that is a refund hand-off."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "origin": {"type": "string", "description": "Airport code the disrupted segment departs from, e.g. DEN. From the booking's segment."},
+                "dest": {"type": "string", "description": "Airport code the disrupted segment arrives at, e.g. AUS. From the booking's segment."},
+                "date": {"type": "string", "description": "YYYY-MM-DD, e.g. 2025-05-08. The disrupted segment's original date, from the booking."},
+                "cabin": {"type": "string", "description": "Cabin of the disrupted segment, Y or J. From the booking's segment."},
+            },
+            "required": ["origin", "dest", "date", "cabin"],
+        },
+    },
+    {
+        "name": "care_entitlements",
+        "description": (
+            "Read-only: say what meal, hotel and ground-transport care the customer would "
+            "get while they wait. Use it when the customer asks whether they get a meal or "
+            "a hotel; use check_policy when you need the whole decision (rebooking, refund, "
+            "goodwill). Needs cause_code, delay_minutes and status from get_flight_status. "
+            "Pass the pnr whenever you have it: tier and whether the customer is overnight "
+            "come from the booking, and without it the answer assumes Member tier and not "
+            "overnight. Returns the policy_row_id and a care block. It never issues "
+            "anything. Tell the customer what applies, then ask whether they would like a "
+            "voucher issued, and use issue_voucher only after they say yes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cause_code": {"type": "string", "enum": ["WX", "ATC", "MX", "CREW", "SEC"],
+                               "description": "From get_flight_status. Never inferred from what the customer says."},
+                "delay_minutes": {"type": "integer",
+                                  "description": "Current delay of the disrupted flight in minutes. Pass 0 when the status is CANCELLED or DIVERTED."},
+                "status": {"type": "string", "enum": ["ON_TIME", "DELAYED", "CANCELLED", "DIVERTED"],
+                           "description": "From get_flight_status."},
+                "pnr": {"type": "string",
+                        "description": "Optional. Include it whenever you have it, for an exact answer."},
+                "wait_minutes_for_alternative": {"type": "integer",
+                                                 "description": "Optional. Minutes until the departure of the alternative the customer chose. Leave out if none chosen yet; the meal is then reported as conditional."},
+            },
+            "required": ["cause_code", "delay_minutes", "status"],
+        },
+    },
+]
+
+
+def care_entitlements(cause_code, delay_minutes, status, pnr=None,
+                      wait_minutes_for_alternative=None):
+    """Read-only view of the care a customer gets while they wait. Issues nothing.
+    It reuses the policy engine that check_policy uses, and returns only the care part."""
+    try:
+        if pnr:
+            full = _check_policy(pnr, cause_code, delay_minutes, status,
+                                 wait_minutes_for_alternative=wait_minutes_for_alternative)
+            assumptions = None
+        else:
+            # No booking: lowest tier, not overnight (policy: no Skyline number = Member).
+            full = mock_backend.resolve_policy(
+                cause_code, delay_minutes, status, fare_family="Main",
+                loyalty_tier="Member", overnight=False,
+                wait_minutes_for_alternative=wait_minutes_for_alternative)
+            assumptions = ("No PNR given: assumed Member tier and not overnight. Tier bonus "
+                           "and hotel depend on the booking; call again with the pnr for an "
+                           "exact answer.")
+        if "error" in full:
+            return full
+        result = {"policy_row_id": full["policy_row_id"], "band": full["band"],
+                  "care": full["care"], "nothing_issued": True,
+                  "ask_customer": "Would you like me to issue the voucher?"}
+    except (KeyError, ValueError, mock_backend.NotFound) as exc:
+        return {"error": "Could not work out care for these inputs: %s" % exc}
+    if assumptions:
+        result["assumptions"] = assumptions
+    return result
+
+
+LOCAL_TOOLS: Dict[str, Any] = {          # ✏️ Build 2, step 2.1: the functions behind them
+    "next_available_day": next_available_day,
+    "care_entitlements": care_entitlements,
+}
 
 
 def text_of(response) -> str:
