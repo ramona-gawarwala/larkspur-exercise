@@ -15,5 +15,5 @@ decides in the moment who does what.
 - Ibrahim Tamam
 - Khusro Jaleel
 - Kayanat Suleman
-- Phillip Du Plooy
+- Phillip
 - Ankur Madaan
