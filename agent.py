@@ -9,6 +9,7 @@ Where you edit:   grep -n '✏' agent.py   (six marks, one per place)
 Steps and gates:  https://anthropicpartnerbasecamp.bts.com/
 """
 from __future__ import annotations
+from pathlib import Path
 from typing import Any, Dict, List
 from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
                      new_session, next_available_day, record_tool_result,
@@ -74,6 +75,37 @@ EXTRA_TOOLS: List[Dict[str, Any]] = [    # ✏️ Build 2, step 2.1: schemas for
             "required": ["cause_code", "delay_minutes", "status"],
         },
     },
+    {
+        "name": "fare_rules",
+        "description": (
+            "Read-only: return Larkspur's written fare rules (Handbook v14.3) for one topic, "
+            "so you can explain the general rule to the customer. Use it for questions about "
+            "what a fare family allows (e.g. 'Can I change my Basic fare?', 'Is Main Plus "
+            "refundable?'), about refund and credit rules when a flight is disrupted (e.g. "
+            "'If I cancel, do I get cash or credit?', 'How long does a refund take?'), or "
+            "about what this chat cannot do (e.g. 'Can you rebook me on another airline?', "
+            "'Can you help with my lost bag?'). NOT for meal, hotel, ground transport or "
+            "goodwill questions: those belong to care_entitlements or check_policy, which "
+            "answer for this specific booking. The text is general, not about this booking; "
+            "if it ever disagrees with a check_policy result, check_policy wins."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "enum": ["fare_families", "disruption_rights", "chat_limits"],
+                    "description": (
+                        "fare_families: what Basic, Main, Main Plus and First allow (changes, "
+                        "refunds, credits). disruption_rights: rebooking windows, refund vs "
+                        "credit, refund timing, diversions. chat_limits: what the chat hands "
+                        "to a person instead of doing itself."
+                    ),
+                },
+            },
+            "required": ["topic"],
+        },
+    },
 ]
 
 
@@ -107,9 +139,44 @@ def care_entitlements(cause_code, delay_minutes, status, pnr=None,
     return result
 
 
+_FARE_RULES_FILE = Path(__file__).parent / "data" / "americas" / "fare_rules_excerpt.md"
+# Topic -> handbook section heading. Section 6 (care while you wait) is left out on
+# purpose: meal/hotel/goodwill belong to care_entitlements and check_policy.
+_FARE_RULE_SECTIONS = {
+    "fare_families": "### 4.",
+    "disruption_rights": "### 5.",
+    "chat_limits": "### 7.",
+}
+
+
+def fare_rules(topic):
+    """Read-only: the handbook text for one fare-rules topic. Issues nothing."""
+    heading = _FARE_RULE_SECTIONS.get(topic)
+    if heading is None:
+        return {"error": "Unknown topic %r. Use one of: %s"
+                         % (topic, ", ".join(_FARE_RULE_SECTIONS))}
+    try:
+        text = _FARE_RULES_FILE.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"error": "Fare rules are unavailable: %s" % exc}
+    start = text.find(heading)
+    if start == -1:
+        return {"error": "Section for %r not found in the handbook excerpt." % topic}
+    end = text.find("\n### ", start + len(heading))
+    section = text[start:] if end == -1 else text[start:end]
+    return {
+        "topic": topic,
+        "source": "Larkspur Handbook v14.3 (fare rules excerpt)",
+        "text": section.strip(),
+        "note": ("General rule, not specific to this booking. If it disagrees with a "
+                 "check_policy result, check_policy wins."),
+    }
+
+
 LOCAL_TOOLS: Dict[str, Any] = {          # ✏️ Build 2, step 2.1: the functions behind them
     "next_available_day": next_available_day,
     "care_entitlements": care_entitlements,
+    "fare_rules": fare_rules,
 }
 
 
