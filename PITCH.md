@@ -8,7 +8,7 @@ Number: Model cost per customer went from $0.0654 to $0.0223, averaged over 15 r
 Safety check: It never changes a group booking itself. It passes it to the Group Desk instead. We saw this in all three bench runs of G2HL9V.
 Next: Teach the agent to notice an angry or abusive customer and answer calmly, or pass them to a person, instead of replying as if nothing happened.
 Still broken: When the customer in R8KD3F is abusive, the agent replies with the same normal answer it gives everyone else. It does nothing about the tone, and it addresses the customer as "Mr./Ms." because it does not know which to use.
-Lever: <cost | speed | intelligence>
+Lever: cost
 
 ## Priya asked
 
