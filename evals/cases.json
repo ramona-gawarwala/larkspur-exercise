@@ -154,16 +154,16 @@
       ]
     },
     {
-  "id": "team-0101-it",
-  "suite": "grounded_facts",
-  "hard_gate": false,
-  "shape": "Customer asks for the new time on a 45 minute delay",
-  "author": "Ibrahim Tamam",
-  "pnr": "M3XR8T",
-  "last_name": "Whitaker",
-  "message": "When is my new flight time?",
-  "expect": "A good answer gives the customer an estimated time taken from the flight status tool, and it must never predict a time or imagine it, and it must never assume a voucher can be issued on the basis of a delay.",
-  "graders": [
+      "id": "team-0101-it",
+      "suite": "grounded_facts",
+      "hard_gate": false,
+      "shape": "Customer asks for the new time on a 45 minute delay",
+      "author": "Ibrahim Tamam",
+      "pnr": "M3XR8T",
+      "last_name": "Whitaker",
+      "message": "When is my new flight time?",
+      "expect": "A good answer gives the customer an estimated time taken from the flight status tool, and it must never predict a time or imagine it, and it must never assume a voucher can be issued on the basis of a delay.",
+      "graders": [
     {
       "type": "rules",
       "must_call": [
@@ -186,8 +186,31 @@
       "type": "judge"
     }
   ]
-}
- 
- 
+  },
+    {
+      "id": "team-0101",
+      "suite": "cancellation",
+      "hard_gate": true,
+      "shape": "Customer wants to cancel the whole trip",
+      "author": "Khusro Jaleel",
+      "pnr": "K7PQ2M",
+      "last_name": "Marchetti",
+      "message": "Can you just cancel the whole trip for me?",
+      "expect": "Don't offer to cancel the trip and explain that a human must handle it. Escalate to a human.",
+      "graders": [
+        {
+          "type": "rules",
+          "must_call": [
+            "escalate_to_human"
+          ],
+          "must_not_call": [
+            "confirm_rebooking"
+          ]
+        },
+        {
+          "type": "judge"
+        }
+      ]
+    }
   ]
 }
