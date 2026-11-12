@@ -17,8 +17,102 @@ from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
-EXTRA_TOOLS: List[Dict[str, Any]] = []   # ✏️ Build 2, step 2.1: schemas for the tools you add
-LOCAL_TOOLS: Dict[str, Any] = {}         # ✏️ Build 2, step 2.1: the functions behind them
+EXTRA_TOOLS: List[Dict[str, Any]] = [
+    {
+        "name": "cause_in_plain_words",
+        "description": (
+            "Turn an OpsFeed cause code into one short, customer-friendly sentence "
+            "explaining why a flight was disrupted (for example, weather or air traffic "
+            "control). Call it after get_flight_status has returned a cause_code, and "
+            "pass that code through unchanged. Do not call it before you have the "
+            "status, and do not guess a cause from memory. Returns a plain-language "
+            "explanation you can quote to the customer; it does not say what Larkspur "
+            "owes them, which is check_policy's job."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cause_code": {
+                    "type": "string",
+                    "enum": ["WX", "ATC", "MX", "CREW", "SEC"],
+                    "description": (
+                        "The cause_code exactly as returned by get_flight_status: WX weather, "
+                        "ATC air traffic control, MX maintenance, CREW crew, SEC security."
+                    ),
+                },
+            },
+            "required": ["cause_code"],
+        },
+    },
+    {
+        "name": "what_automation_will_not_do",
+        "description": (
+            "Handbook v14.3, section 7: what the chat assistant is not allowed to do. "
+            "Call it whenever a customer asks you to do something that might be outside "
+            "your remit, for example cancelling the whole trip, getting a refund, "
+            "collecting a fare difference, approving a hotel, rebooking onto another "
+            "airline, splitting or moving a large group, or anything about unaccompanied "
+            "minors, partner-operated flights, pets in cabin, medical requests or lost "
+            "baggage. Check it before you promise or attempt anything of that kind, and "
+            "never answer a scope question from memory. Takes no arguments. Returns the "
+            "list of things people handle, what you can do instead (explain, hold a seat "
+            "for 15 minutes, hand over with a summary), and the rule that nothing is "
+            "rebooked until the customer presses Confirm. It does not hand the customer "
+            "over itself; use escalate_to_human for that. Do not call it for ordinary "
+            "rebooking, flight status or policy questions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+]
+CAUSE_SENTENCES = {
+    "WX": "Bad weather affected flying at the airport, and flights could not operate safely.",
+    "ATC": "Air traffic control restricted the number of flights allowed to take off and land.",
+    "MX": "The aircraft needed a maintenance check before it could safely fly.",
+    "CREW": "The crew needed to operate the flight was not available in time.",
+    "SEC": "A security issue at the airport meant the flight could not operate as planned.",
+}
+
+
+def cause_in_plain_words(cause_code: str) -> Dict[str, Any]:
+    """One customer-friendly sentence for an OpsFeed cause code."""
+    sentence = CAUSE_SENTENCES.get(str(cause_code).upper())
+    if sentence is None:
+        return {"error": "Unknown cause_code %s; expected one of %s"
+                         % (cause_code, ", ".join(CAUSE_SENTENCES))}
+    return {"cause_code": cause_code, "explanation": sentence}
+
+
+def what_automation_will_not_do() -> Dict[str, Any]:
+    """Handbook v14.3, section 7, as data."""
+    return {
+        "source": "Handbook v14.3, section 7: What chat automation will not do",
+        "handled_by_people": [
+            "refunds",
+            "fare-difference collection",
+            "hotel approval",
+            "other-airline rebooking",
+            "group bookings of 10 or more",
+            "unaccompanied minors",
+            "itineraries with partner-operated flights",
+            "pets in cabin and medical requests on a new flight",
+            "baggage tracing",
+        ],
+        "assistant_can_do": [
+            "explain the options and the policy",
+            "hold a seat for 15 minutes while the customer decides",
+            "hand over to a person with a summary",
+        ],
+        "rebooking_rule": "Nothing is rebooked until the customer presses Confirm.",
+    }
+
+
+LOCAL_TOOLS: Dict[str, Any] = {                  # ✏️ Build 2, step 2.1: the functions behind them
+    "cause_in_plain_words": cause_in_plain_words,
+    "what_automation_will_not_do": what_automation_will_not_do,
+}
 
 
 def text_of(response) -> str:
