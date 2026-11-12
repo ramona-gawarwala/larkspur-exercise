@@ -16,35 +16,12 @@ from support import (MODEL, SYSTEM_PROMPT, call_local, execute_tool, mcp_client,
                      runtime_preamble)
 from support import mock_backend
 from support.tools import check_policy as _check_policy
+from support.tools import search_alternatives as _search_alternatives
 
 MAX_TOOL_CALLS = 8  # Larkspur's own build capped the loop here; then a human takes over.
 
 TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
 EXTRA_TOOLS: List[Dict[str, Any]] = [    # ✏️ Build 2, step 2.1: schemas for the tools you add
-    {
-        "name": "next_available_day",
-        "description": (
-            "Find the earliest date with an open seat on the same route and cabin as the "
-            "customer's disrupted segment. Use it when the customer asks when they can "
-            "next fly, or says they want the next day rather than today. Take origin, "
-            "dest, date and cabin from the segment in the lookup_booking result; do not "
-            "ask the customer for them. Returns one date, not a list of flights, and it "
-            "cannot skip a day: for 'I want tomorrow', also call search_alternatives and "
-            "check the dates in its options. If no date comes back, say nothing is "
-            "available, do not invent a flight, and hand off with escalate_to_human. Not "
-            "for a customer who only wants to cancel: that is a refund hand-off."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "origin": {"type": "string", "description": "Airport code the disrupted segment departs from, e.g. DEN. From the booking's segment."},
-                "dest": {"type": "string", "description": "Airport code the disrupted segment arrives at, e.g. AUS. From the booking's segment."},
-                "date": {"type": "string", "description": "YYYY-MM-DD, e.g. 2025-05-08. The disrupted segment's original date, from the booking."},
-                "cabin": {"type": "string", "description": "Cabin of the disrupted segment, Y or J. From the booking's segment."},
-            },
-            "required": ["origin", "dest", "date", "cabin"],
-        },
-    },
     {
         "name": "care_entitlements",
         "description": (
@@ -76,37 +53,37 @@ EXTRA_TOOLS: List[Dict[str, Any]] = [    # ✏️ Build 2, step 2.1: schemas for
         },
     },
     {
-        "name": "fare_rules",
+        "name": "get_hold_status",
         "description": (
-            "Read-only: return Larkspur's written fare rules (Handbook v14.3) for one topic, "
-            "so you can explain the general rule to the customer. Use it for questions about "
-            "what a fare family allows (e.g. 'Can I change my Basic fare?', 'Is Main Plus "
-            "refundable?'), about refund and credit rules when a flight is disrupted (e.g. "
-            "'If I cancel, do I get cash or credit?', 'How long does a refund take?'), or "
-            "about what this chat cannot do (e.g. 'Can you rebook me on another airline?', "
-            "'Can you help with my lost bag?'). NOT for meal, hotel, ground transport or "
-            "goodwill questions: those belong to care_entitlements or check_policy, which "
-            "answer for this specific booking. The text is general, not about this booking; "
-            "if it ever disagrees with a check_policy result, check_policy wins."
+            "Check a seat hold you already placed with hold_seat: how many seats are "
+            "left on that flight option and how many minutes remain before the hold "
+            "expires. Use it when the customer asks how long they have, or before "
+            "confirm_rebooking if time may have passed. Needs a hold_id from hold_seat; "
+            "it cannot look up a hold you have not made."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {
-                "topic": {
-                    "type": "string",
-                    "enum": ["fare_families", "disruption_rights", "chat_limits"],
-                    "description": (
-                        "fare_families: what Basic, Main, Main Plus and First allow (changes, "
-                        "refunds, credits). disruption_rights: rebooking windows, refund vs "
-                        "credit, refund timing, diversions. chat_limits: what the chat hands "
-                        "to a person instead of doing itself."
-                    ),
-                },
-            },
-            "required": ["topic"],
+            "properties": {"hold_id": {"type": "string",
+                                       "description": "The hold_id returned by hold_seat, e.g. HOLD-1A2B3C."}},
+            "required": ["hold_id"],
         },
     },
 ]
+
+
+def get_hold_status(hold_id):
+    """Seats left on a held option and minutes left on the hold. Read-only."""
+    hold = mock_backend._holds.get(hold_id)
+    if hold is None:
+        return {"error": f"No hold {hold_id}."}
+    seconds = (hold["expires_at"] - mock_backend.FIXTURE_CLOCK).total_seconds()
+    seats_left = next(
+        (o["seats_available"] for o in _search_alternatives(hold["pnr"]).get("options", [])
+         if o["option_id"] == hold["option_id"]),
+        None,
+    )
+    return {"hold_id": hold_id, "option_id": hold["option_id"],
+            "seats_left": seats_left, "hold_minutes_left": max(0, int(seconds // 60))}
 
 
 def care_entitlements(cause_code, delay_minutes, status, pnr=None,
@@ -174,9 +151,8 @@ def fare_rules(topic):
 
 
 LOCAL_TOOLS: Dict[str, Any] = {          # ✏️ Build 2, step 2.1: the functions behind them
-    "next_available_day": next_available_day,
     "care_entitlements": care_entitlements,
-    "fare_rules": fare_rules,
+    "get_hold_status": get_hold_status,
 }
 
 
@@ -242,7 +218,7 @@ def run_agent(pnr: str, last_name: str, message: str) -> str:            # ✏�
 def tool_list() -> List[Dict[str, Any]]:                   # ✏️ Build 2, step 2.2
     """Given. Exactly what Claude is offered on every turn; run.py --show-tools
     prints this list."""
-    return build_tools() + EXTRA_TOOLS
+    return build_tools() + EXTRA_TOOLS + mcp_client.tools()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
