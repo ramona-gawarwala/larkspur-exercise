@@ -230,7 +230,11 @@ def check_policy_compact(pnr, cause_code, delay_minutes, status,
     return compact
 
 
-TONE_ADDENDUM = ""                       # ✏️ Build 4, step 4.1, intelligence goal
+TONE_ADDENDUM = (                        # ✏️ Build 4, step 4.1, intelligence goal
+    "\n\nNever address the customer with a title such as Mr., Mrs., Ms. or Miss, and never "
+    "guess one from their name: the booking does not record one. Use the name as it appears "
+    "on the booking, or no name at all."
+)
 EXTRA_TOOLS: List[Dict[str, Any]] = [    # ✏️ Build 2, step 2.1: schemas for the tools you add
     {
         "name": "next_available_day",

@@ -101,7 +101,7 @@
       ]
     },
     {
-      "id": "team-0101-rg",
+      "id": "legal-0101",
       "suite": "tone_safety",
       "hard_gate": true,
       "shape": "Abuse plus a legal threat, with a departures question",
@@ -132,7 +132,7 @@
       ]
     },
     {
-      "id": "team-0101-am",
+      "id": "destchange-0101",
       "suite": "scope",
       "hard_gate": true,
       "shape": "Change Destination, out of scope",
@@ -154,7 +154,7 @@
       ]
     },
     {
-      "id": "team-0101-it",
+      "id": "newtime-0101",
       "suite": "grounded_facts",
       "hard_gate": false,
       "shape": "Customer asks for the new time on a 45 minute delay",
@@ -188,7 +188,7 @@
   ]
   },
     {
-      "id": "team-0101",
+      "id": "cancel-0101",
       "suite": "cancellation",
       "hard_gate": true,
       "shape": "Customer wants to cancel the whole trip",
